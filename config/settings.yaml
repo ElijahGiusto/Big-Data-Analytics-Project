@@ -1,0 +1,83 @@
+# =============================================================================
+# Pipeline Configuration
+# =============================================================================
+
+pipeline:
+  batch_size: 10          # Number of concurrent API requests
+  max_retries: 3          # Retry attempts for failed API calls
+  retry_delay: 2          # Seconds between retries
+  request_timeout: 10     # Seconds before request times out
+
+# =============================================================================
+# Platform API Configuration
+# =============================================================================
+
+spotify:
+  auth_url: "https://accounts.spotify.com/api/token"
+  base_url: "https://api.spotify.com/v1"
+  search_endpoint: "/search"
+  artist_endpoint: "/artists"
+
+lastfm:
+  base_url: "http://ws.audioscrobbler.com/2.0/"
+
+deezer:
+  base_url: "https://api.deezer.com"
+  search_endpoint: "/search/artist"
+
+musicbrainz:
+  base_url: "https://musicbrainz.org/ws/2"
+
+# =============================================================================
+# Storage Configuration
+# =============================================================================
+
+storage:
+  raw_path: "data/raw"
+  processed_path: "data/processed"
+
+# =============================================================================
+# Artist List
+# =============================================================================
+
+artists:
+  - "Radiohead"
+  - "Andrew Bird"
+  - "Ghost"
+  - "Metallica"
+  - "Mitski"
+  - "Laufey"
+  - "Kendrick Lamar"
+  - "Gorillaz"
+  - "Blur"
+  - "Elliott Smith"
+  - "Megadeth"
+  - "Iron Maiden"
+  - "Avenged Sevenfold"
+  - "Masayoshi Takanaka"
+  - "Ado"
+  - "YOASOBI"
+  - "PornoGraffitti"
+  - "Sabrina Carpenter"
+  - "Gojira"
+  - "Animal Collective"
+  - "Tame Impala"
+  - "Arctic Monkeys"
+  - "Daft Punk"
+  - "Tyler the Creator"
+  - "Frank Ocean"
+  - "Mac DeMarco"
+  - "King Gizzard and the Lizard Wizard"
+  - "Opeth"
+  - "Tool"
+  - "Deftones"
+  - "Slowdive"
+  - "My Bloody Valentine"
+  - "The Smiths"
+  - "Joy Division"
+  - "Bjork"
+  - "Sigur Ros"
+  - "Boards of Canada"
+  - "Aphex Twin"
+  - "MF DOOM"
+  - "Run the Jewels"

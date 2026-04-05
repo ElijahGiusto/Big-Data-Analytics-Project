@@ -80,7 +80,13 @@ pip install -r requirements.txt
 
 ### 3. Configure API Credentials
 
-Create a `.env` file with your API keys:
+Copy the example environment file and fill in your credentials:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your API keys:
 
 ```
 SPOTIFY_CLIENT_ID=your_spotify_client_id

@@ -35,9 +35,9 @@ def setup_hadoop_windows():
     """
     Configure HADOOP_HOME on Windows for PySpark local mode.
 
-    PySpark on Windows requires winutils.exe (a Hadoop binary) even for
-    local file operations. This function checks for an existing HADOOP_HOME
-    or looks for a bundled hadoop/bin/winutils.exe in the project directory.
+    PySpark on Windows requires Hadoop native binaries even for local file
+    operations. This function checks for an existing HADOOP_HOME or looks for
+    hadoop/bin/winutils.exe and hadoop/bin/hadoop.dll in the project directory.
     """
     if platform.system() != "Windows":
         return
@@ -45,28 +45,38 @@ def setup_hadoop_windows():
     project_root = Path(__file__).resolve().parents[1]
     configured_home = os.environ.get("HADOOP_HOME")
     hadoop_home = Path(configured_home) if configured_home else project_root / "hadoop"
-    winutils_path = hadoop_home / "bin" / "winutils.exe"
+    hadoop_bin = hadoop_home / "bin"
+    required_files = [
+        hadoop_bin / "winutils.exe",
+        hadoop_bin / "hadoop.dll",
+    ]
+    missing_files = [path for path in required_files if not path.exists()]
 
-    if winutils_path.exists():
+    if not missing_files:
         os.environ["HADOOP_HOME"] = str(hadoop_home)
-        bin_path = str(hadoop_home / "bin")
+        bin_path = str(hadoop_bin)
         path_entries = os.environ.get("PATH", "").split(os.pathsep)
         if bin_path.lower() not in {entry.lower() for entry in path_entries}:
             os.environ["PATH"] = bin_path + os.pathsep + os.environ.get("PATH", "")
         return
 
-    # Create directory structure so the user just needs to drop in the exe
-    winutils_path.parent.mkdir(parents=True, exist_ok=True)
+    # Create directory structure so the setup script or user can drop files in.
+    hadoop_bin.mkdir(parents=True, exist_ok=True)
 
     print("\n" + "=" * 60)
-    print("WINDOWS SETUP REQUIRED: winutils.exe")
+    print("WINDOWS SETUP REQUIRED: Hadoop native binaries")
     print("=" * 60)
-    print(f"\nPySpark on Windows needs Hadoop's winutils.exe to write files.")
-    print(f"\n1. Download winutils.exe for Hadoop 3.3.x from:")
+    print("\nPySpark on Windows needs these files to write Parquet locally:")
+    for path in missing_files:
+        print(f"   - {path}")
+    print("\nRecommended one-time setup from the project root:")
+    print(r"   powershell -ExecutionPolicy Bypass -File .\scripts\setup_windows_hadoop.ps1")
+    print("\nManual download links for Hadoop 3.3.6 binaries:")
     print(f"   https://github.com/cdarlint/winutils/raw/master/hadoop-3.3.6/bin/winutils.exe")
-    print(f"\n2. Place it in:")
-    print(f"   {winutils_path}")
-    print(f"\n3. Run the pipeline again. The app will set HADOOP_HOME and PATH.")
+    print(f"   https://github.com/cdarlint/winutils/raw/master/hadoop-3.3.6/bin/hadoop.dll")
+    print(f"\nPlace both files in:")
+    print(f"   {hadoop_bin}")
+    print("\nRun the pipeline again. The app will set HADOOP_HOME and PATH.")
     print("=" * 60 + "\n")
     sys.exit(1)
 

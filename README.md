@@ -70,6 +70,8 @@ flowchart LR
 - Docker Desktop for optional HDFS mode
 - Windows only: `hadoop/bin/winutils.exe` and `hadoop/bin/hadoop.dll`
 
+The pipeline injects `hadoop/bin` into `PATH` automatically on Windows when both Hadoop native files exist, so there is no manual per-run PATH command.
+
 ### Clone
 
 ```bash
@@ -82,6 +84,14 @@ cd Big-Data-Analytics-Project
 ```bash
 python -m pip install -r requirements.txt
 ```
+
+On Windows, install the local Hadoop helper files once:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup_windows_hadoop.ps1
+```
+
+This downloads `winutils.exe` and `hadoop.dll` into the ignored local `hadoop/bin` folder. They are platform-specific runtime files, so they are intentionally not committed to the repository.
 
 ### Configure Credentials
 

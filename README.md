@@ -163,8 +163,6 @@ See [docs/validation.md](docs/validation.md) for the full validation report and 
 - **Local or HDFS Parquet:** stores data by `platform` and `snapshot_date`, enabling efficient platform/time filtering and incremental snapshots. Local mode is the clone-and-run default; HDFS mode uses Dockerized Apache Hadoop.
 - **Canonical artist matching:** normalizes platform spelling variants such as `Björk`, `TOOL`, `Tyler, The Creator`, and `King Gizzard & The Lizard Wizard` back to the configured artist list.
 - **Snapshot partition cleanup:** rerunning the same day replaces the current snapshot before writing, so disabled sources like Spotify cannot remain in the latest partition.
-- **Spotify treated honestly:** Spotify is disabled by default because the available development-mode API response omits artist popularity/follower/genre fields.
-- **Rate-limit-aware enrichment:** iTunes runs sequentially with caching because Apple documents the Search API at about 20 calls per minute.
 
 ## Known Limitations
 

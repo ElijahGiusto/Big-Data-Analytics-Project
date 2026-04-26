@@ -70,8 +70,6 @@ flowchart LR
 - Docker Desktop for optional HDFS mode
 - Windows only: `hadoop/bin/winutils.exe` and `hadoop/bin/hadoop.dll`
 
-The pipeline now injects `hadoop/bin` into `PATH` automatically on Windows when the files exist, so there is no manual per-run PATH command.
-
 ### Clone
 
 ```bash

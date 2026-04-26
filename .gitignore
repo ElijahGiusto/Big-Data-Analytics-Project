@@ -19,7 +19,7 @@ metastore_db/
 derby.log
 
 # Hadoop binaries (Windows-only, platform-specific)
-hadoop/
+/hadoop/
 
 # OS / IDE
 .DS_Store
@@ -27,6 +27,8 @@ hadoop/
 .idea/
 Thumbs.db
 
-# Data (raw API responses may contain credentials in metadata)
-# Processed parquet is included as sample output
+# Data (raw and processed outputs are reproducible)
+data/cache/*.json
 data/raw/*.json
+data/processed/*
+!data/processed/.gitkeep

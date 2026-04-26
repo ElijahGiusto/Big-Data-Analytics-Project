@@ -14,7 +14,8 @@ COPY core-site.xml /opt/hadoop/etc/hadoop/core-site.xml
 COPY hdfs-site.xml /opt/hadoop/etc/hadoop/hdfs-site.xml
 COPY start-hdfs.sh /opt/hadoop/bin/start-hdfs.sh
 
-RUN chmod +x /opt/hadoop/bin/start-hdfs.sh
+RUN sed -i 's/\r$//' /opt/hadoop/bin/start-hdfs.sh \
+    && chmod +x /opt/hadoop/bin/start-hdfs.sh
 
 EXPOSE 9000 9870 9864 9866
 

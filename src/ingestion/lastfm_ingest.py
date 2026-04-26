@@ -163,7 +163,9 @@ def fetch_artist(artist_name, api_key, config):
 
         if "artist" in data:
             logger.debug("Fetched Last.fm data for '%s'", artist_name)
-            return data["artist"]
+            artist = data["artist"]
+            artist["source_artist_name"] = artist_name
+            return artist
 
         # Last.fm returns errors in the JSON body
         error_msg = data.get("message", "unknown error")

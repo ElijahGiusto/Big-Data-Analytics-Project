@@ -1,252 +1,313 @@
 """
-Spark SQL Analytical Queries Module
+Spark SQL analytical queries for the artist popularity dataset.
 
-Executes analytical queries against the normalized artist popularity
-time-series dataset using Spark SQL. Implements the query layer
-described in the M1 architecture.
-
-Platform data context:
-    - Spotify: Artist identification only (name + ID, no metrics)
-    - Last.fm: Listener count (unique listeners) and total playcount
-    - Deezer: Fan count (users who favorited the artist)
-    - MusicBrainz: Community rating (0-100) and genre tags
-
-Queries are designed around these differences rather than treating
-all platforms' numbers as equivalent.
+The default query set uses only sources enabled in config/settings.yaml.
+Spotify is optional catalog data and is disabled by default, so the
+portfolio output focuses on sources with usable metrics or enrichment.
 """
 
 import logging
-from pyspark.sql import SparkSession
+
+from pyspark.sql import functions as F
 
 logger = logging.getLogger(__name__)
 
 
-def register_table(spark, df):
+def _metric_source_sql():
+    """Reusable SQL fragment for real popularity/reach signals."""
+    return """
+        SELECT artist_name, 'lastfm_listeners' AS signal,
+               CAST(listeners AS DOUBLE) AS metric_value
+        FROM latest
+        WHERE platform = 'lastfm' AND listeners IS NOT NULL
+        UNION ALL
+        SELECT artist_name, 'deezer_fans' AS signal,
+               CAST(listeners AS DOUBLE) AS metric_value
+        FROM latest
+        WHERE platform = 'deezer' AND listeners IS NOT NULL
+        UNION ALL
+        SELECT artist_name, 'wikimedia_views' AS signal,
+               CAST(listeners AS DOUBLE) AS metric_value
+        FROM latest
+        WHERE platform = 'wikimedia' AND listeners IS NOT NULL
+        UNION ALL
+        SELECT artist_name, 'listenbrainz_listens' AS signal,
+               CAST(playcount AS DOUBLE) AS metric_value
+        FROM latest
+        WHERE platform = 'listenbrainz' AND playcount IS NOT NULL
+        UNION ALL
+        SELECT artist_name, 'musicbrainz_rating' AS signal,
+               CAST(popularity_score AS DOUBLE) AS metric_value
+        FROM latest
+        WHERE platform = 'musicbrainz' AND popularity_score IS NOT NULL
     """
-    Register the DataFrame as a Spark SQL temporary view for querying.
+
+
+def register_table(spark, df, enabled_sources=None):
+    """
+    Register enabled source rows as a Spark SQL temporary view.
 
     Args:
         spark: Active SparkSession.
         df: Normalized DataFrame to register.
-    """
-    df.createOrReplaceTempView("artist_popularity")
-    logger.info("Registered 'artist_popularity' table with %d records", df.count())
-
-
-def dataset_summary(spark):
-    """
-    Query 1: High-level summary statistics for the entire dataset.
-
-    Provides an overview of data volume, platform distribution,
-    and time coverage to validate pipeline completeness.
+        enabled_sources: Optional iterable of source names to keep.
 
     Returns:
-        DataFrame: Summary statistics.
+        DataFrame: Filtered DataFrame registered as artist_popularity.
     """
-    logger.info("Query: Dataset summary statistics")
+    filtered = df
+    if enabled_sources:
+        filtered = filtered.where(F.col("platform").isin(*sorted(enabled_sources)))
 
-    result = spark.sql("""
-        SELECT
-            COUNT(*) AS total_records,
-            COUNT(DISTINCT artist_name) AS unique_artists,
-            COUNT(DISTINCT platform) AS platforms,
-            COUNT(DISTINCT snapshot_date) AS snapshots,
-            MIN(snapshot_date) AS earliest_snapshot,
-            MAX(snapshot_date) AS latest_snapshot
-        FROM artist_popularity
-    """)
-
-    result.show(truncate=False)
-    return result
+    filtered.createOrReplaceTempView("artist_popularity")
+    logger.info(
+        "Registered 'artist_popularity' table with %d enabled-source records",
+        filtered.count(),
+    )
+    return filtered
 
 
-def cross_platform_comparison(spark):
+def artist_scorecard(spark, n=50):
     """
-    Query 2: Compare artist reach across platforms with real metrics.
-
-    Shows Last.fm listeners, Deezer fans, and MusicBrainz community
-    rating side by side. Spotify is excluded since it only provides
-    artist identification under Client Credentials auth. Each column
-    represents a different popularity signal:
-        - Last.fm listeners: unique users who played the artist
-        - Deezer fans: users who favorited the artist
-        - MusicBrainz rating: community score out of 100
-
-    Returns:
-        DataFrame: Artists with per-platform metrics.
+    Query 1: Artist-level scorecard using meaningful metric sources.
     """
-    logger.info("Query: Cross-platform popularity comparison")
+    logger.info("Query: Artist scorecard")
 
-    result = spark.sql("""
+    result = spark.sql(f"""
+        WITH latest AS (
+            SELECT *
+            FROM artist_popularity
+            WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM artist_popularity)
+        )
         SELECT
             artist_name,
             MAX(CASE WHEN platform = 'lastfm' THEN listeners END) AS lastfm_listeners,
             MAX(CASE WHEN platform = 'lastfm' THEN playcount END) AS lastfm_playcount,
             MAX(CASE WHEN platform = 'deezer' THEN listeners END) AS deezer_fans,
-            MAX(CASE WHEN platform = 'musicbrainz' THEN popularity_score END) AS mb_rating
-        FROM artist_popularity
-        WHERE platform != 'spotify'
+            MAX(CASE WHEN platform = 'wikimedia' THEN listeners END) AS wikipedia_monthly_views,
+            MAX(CASE WHEN platform = 'listenbrainz' THEN playcount END) AS listenbrainz_listens,
+            MAX(CASE WHEN platform = 'musicbrainz' THEN popularity_score END) AS musicbrainz_rating,
+            COALESCE(
+                MAX(CASE WHEN platform = 'lastfm' THEN genres END),
+                MAX(CASE WHEN platform = 'musicbrainz' THEN genres END),
+                MAX(CASE WHEN platform = 'wikidata' THEN genres END),
+                MAX(CASE WHEN platform = 'theaudiodb' THEN genres END),
+                MAX(CASE WHEN platform = 'itunes' THEN genres END)
+            ) AS primary_genres
+        FROM latest
         GROUP BY artist_name
-        ORDER BY lastfm_listeners DESC NULLS LAST
+        ORDER BY lastfm_listeners DESC NULLS LAST,
+                 deezer_fans DESC NULLS LAST,
+                 wikipedia_monthly_views DESC NULLS LAST
+        LIMIT {n}
     """)
 
-    result.show(50, truncate=False)
+    result.show(n, truncate=False)
     return result
 
 
-def top_artists_by_reach(spark, n=10):
+def composite_reach_rank(spark, n=25):
     """
-    Query 3: Top N artists ranked by listener/fan count per platform.
-
-    Ranks artists within Last.fm and Deezer separately using window
-    functions. Spotify is excluded (no metrics) and MusicBrainz is
-    excluded (its rating scale is not comparable to listener counts).
-
-    Args:
-        spark: Active SparkSession.
-        n: Number of top artists to return per platform.
-
-    Returns:
-        DataFrame: Top N artists per platform with rank.
+    Query 2: Percentile-normalized artist reach across metric sources.
     """
-    logger.info("Query: Top %d artists by reach", n)
+    logger.info("Query: Composite reach rank")
 
     result = spark.sql(f"""
-        WITH ranked AS (
+        WITH latest AS (
+            SELECT *
+            FROM artist_popularity
+            WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM artist_popularity)
+        ),
+        metrics AS (
+            {_metric_source_sql()}
+        ),
+        ranked AS (
             SELECT
                 artist_name,
-                platform,
-                listeners,
-                playcount,
-                ROW_NUMBER() OVER (
-                    PARTITION BY platform
-                    ORDER BY listeners DESC
-                ) AS rank
-            FROM artist_popularity
-            WHERE platform IN ('lastfm', 'deezer')
-              AND listeners IS NOT NULL
+                signal,
+                metric_value,
+                PERCENT_RANK() OVER (
+                    PARTITION BY signal
+                    ORDER BY metric_value
+                ) AS percentile
+            FROM metrics
+            WHERE metric_value IS NOT NULL AND metric_value > 0
         )
         SELECT
-            platform,
-            rank,
             artist_name,
-            listeners,
-            playcount
+            ROUND(AVG(percentile) * 100, 2) AS composite_reach_score,
+            COUNT(*) AS metric_signals,
+            ROUND(MAX(CASE WHEN signal = 'lastfm_listeners' THEN percentile END) * 100, 2)
+                AS lastfm_percentile,
+            ROUND(MAX(CASE WHEN signal = 'deezer_fans' THEN percentile END) * 100, 2)
+                AS deezer_percentile,
+            ROUND(MAX(CASE WHEN signal = 'wikimedia_views' THEN percentile END) * 100, 2)
+                AS wikipedia_percentile,
+            ROUND(MAX(CASE WHEN signal = 'listenbrainz_listens' THEN percentile END) * 100, 2)
+                AS listenbrainz_percentile,
+            ROUND(MAX(CASE WHEN signal = 'musicbrainz_rating' THEN percentile END) * 100, 2)
+                AS musicbrainz_percentile
         FROM ranked
-        WHERE rank <= {n}
-        ORDER BY platform, rank
-    """)
-
-    result.show(n * 2, truncate=False)
-    return result
-
-
-def musicbrainz_ratings(spark):
-    """
-    Query 4: MusicBrainz community ratings and genre tags.
-
-    MusicBrainz ratings are on a different scale (community votes,
-    0-100) than listener counts, so they get their own query. This
-    shows which artists are most highly rated by the MusicBrainz
-    community, along with their genre classifications.
-
-    Returns:
-        DataFrame: Artists ranked by MusicBrainz community rating.
-    """
-    logger.info("Query: MusicBrainz community ratings")
-
-    result = spark.sql("""
-        SELECT
-            artist_name,
-            popularity_score AS community_rating,
-            listeners AS total_votes,
-            genres AS genre_tags
-        FROM artist_popularity
-        WHERE platform = 'musicbrainz'
-          AND popularity_score IS NOT NULL
-        ORDER BY community_rating DESC, total_votes DESC
-    """)
-
-    result.show(50, truncate=False)
-    return result
-
-
-def genre_analysis(spark):
-    """
-    Query 5: Genre distribution across platforms.
-
-    Shows genre tags from Last.fm and MusicBrainz (the two platforms
-    that provide genre data) alongside listener metrics, enabling
-    analysis of which genres dominate in popularity.
-
-    Returns:
-        DataFrame: Artists with genre data and associated metrics.
-    """
-    logger.info("Query: Genre analysis across platforms")
-
-    result = spark.sql("""
-        SELECT
-            artist_name,
-            platform,
-            genres,
-            listeners,
-            popularity_score
-        FROM artist_popularity
-        WHERE genres IS NOT NULL
-          AND platform IN ('lastfm', 'musicbrainz')
-        ORDER BY listeners DESC NULLS LAST
-    """)
-
-    result.show(50, truncate=False)
-    return result
-
-
-def platform_coverage(spark):
-    """
-    Query 6: Analyze which artists have data across all platforms
-    versus partial coverage.
-
-    Useful for identifying gaps in the ingestion pipeline and
-    understanding data completeness. Also highlights artist name
-    inconsistencies across platforms (e.g., "Bjork" vs "Björk").
-
-    Returns:
-        DataFrame: Per-artist platform coverage summary.
-    """
-    logger.info("Query: Platform coverage analysis")
-
-    result = spark.sql("""
-        SELECT
-            artist_name,
-            COLLECT_SET(platform) AS platforms_present,
-            COUNT(DISTINCT platform) AS num_platforms,
-            COUNT(DISTINCT snapshot_date) AS num_snapshots
-        FROM artist_popularity
         GROUP BY artist_name
-        ORDER BY num_platforms DESC, artist_name
+        ORDER BY composite_reach_score DESC, metric_signals DESC, artist_name
+        LIMIT {n}
     """)
 
-    result.show(50, truncate=False)
+    result.show(n, truncate=False)
     return result
 
 
-def artist_popularity_trend(spark, artist_name):
+def platform_gap_analysis(spark, n=25):
     """
-    Query 7: Retrieve an artist's data across all platforms.
-
-    Shows how each platform represents the same artist with different
-    metrics, demonstrating the heterogeneous data challenge from the
-    M1 pitch. Supports time-range analysis when multiple snapshots exist.
-
-    Args:
-        spark: Active SparkSession.
-        artist_name: Name of the artist to query.
-
-    Returns:
-        DataFrame: All records for the artist across platforms.
+    Query 3: Artists whose rank differs most across metric sources.
     """
-    logger.info("Query: Artist detail for '%s'", artist_name)
+    logger.info("Query: Platform gap analysis")
 
+    result = spark.sql(f"""
+        WITH latest AS (
+            SELECT *
+            FROM artist_popularity
+            WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM artist_popularity)
+        ),
+        metrics AS (
+            {_metric_source_sql()}
+        ),
+        ranked AS (
+            SELECT
+                artist_name,
+                signal,
+                DENSE_RANK() OVER (
+                    PARTITION BY signal
+                    ORDER BY metric_value DESC
+                ) AS signal_rank
+            FROM metrics
+            WHERE metric_value IS NOT NULL AND metric_value > 0
+        )
+        SELECT
+            artist_name,
+            COUNT(*) AS signals_present,
+            MIN(signal_rank) AS best_rank,
+            MAX(signal_rank) AS worst_rank,
+            MAX(signal_rank) - MIN(signal_rank) AS rank_spread,
+            SORT_ARRAY(
+                COLLECT_LIST(CONCAT(signal, '=', CAST(signal_rank AS STRING)))
+            ) AS rank_details
+        FROM ranked
+        GROUP BY artist_name
+        HAVING COUNT(*) >= 2
+        ORDER BY rank_spread DESC, signals_present DESC, artist_name
+        LIMIT {n}
+    """)
+
+    result.show(n, truncate=False)
+    return result
+
+
+def genre_reach_summary(spark, n=50):
+    """
+    Query 4: Genre-level reach summary across metric and metadata sources.
+    """
+    logger.info("Query: Genre reach summary")
+
+    result = spark.sql(f"""
+        WITH latest AS (
+            SELECT *
+            FROM artist_popularity
+            WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM artist_popularity)
+        ),
+        artist_metrics AS (
+            SELECT
+                artist_name,
+                MAX(CASE WHEN platform = 'lastfm' THEN listeners END) AS lastfm_listeners,
+                MAX(CASE WHEN platform = 'deezer' THEN listeners END) AS deezer_fans,
+                MAX(CASE WHEN platform = 'wikimedia' THEN listeners END) AS wikipedia_views,
+                MAX(CASE WHEN platform = 'listenbrainz' THEN playcount END) AS listenbrainz_listens,
+                MAX(CASE WHEN platform = 'musicbrainz' THEN popularity_score END) AS musicbrainz_rating
+            FROM latest
+            GROUP BY artist_name
+        ),
+        genre_rows AS (
+            SELECT
+                artist_name,
+                TRIM(genre_value) AS genre
+            FROM latest
+            LATERAL VIEW EXPLODE(SPLIT(genres, ',')) exploded_genres AS genre_value
+            WHERE genres IS NOT NULL
+        )
+        SELECT
+            genre,
+            COUNT(DISTINCT g.artist_name) AS artist_count,
+            ROUND(AVG(m.lastfm_listeners), 0) AS avg_lastfm_listeners,
+            ROUND(AVG(m.deezer_fans), 0) AS avg_deezer_fans,
+            ROUND(AVG(m.wikipedia_views), 0) AS avg_wikipedia_views,
+            ROUND(AVG(m.listenbrainz_listens), 0) AS avg_listenbrainz_listens,
+            ROUND(AVG(m.musicbrainz_rating), 1) AS avg_musicbrainz_rating
+        FROM genre_rows g
+        LEFT JOIN artist_metrics m
+            ON g.artist_name = m.artist_name
+        WHERE genre <> ''
+          AND LOWER(genre) NOT IN ('seen live')
+        GROUP BY genre
+        HAVING COUNT(DISTINCT g.artist_name) >= 2
+        ORDER BY artist_count DESC,
+                 avg_lastfm_listeners DESC NULLS LAST,
+                 genre
+        LIMIT {n}
+    """)
+
+    result.show(n, truncate=False)
+    return result
+
+
+def metadata_coverage(spark, n=50):
+    """
+    Query 5: Enrichment-source coverage without pretending it is popularity.
+    """
+    logger.info("Query: Metadata coverage")
+
+    result = spark.sql(f"""
+        WITH latest AS (
+            SELECT *
+            FROM artist_popularity
+            WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM artist_popularity)
+        ),
+        per_artist AS (
+            SELECT
+                artist_name,
+                MAX(CASE WHEN platform = 'itunes' THEN artist_id END) AS itunes_id,
+                MAX(CASE WHEN platform = 'wikidata' THEN artist_id END) AS wikidata_id,
+                MAX(CASE WHEN platform = 'theaudiodb' THEN artist_id END) AS theaudiodb_id,
+                MAX(CASE WHEN platform = 'itunes' THEN genres END) AS itunes_genre,
+                MAX(CASE WHEN platform = 'wikidata' THEN genres END) AS wikidata_genres,
+                MAX(CASE WHEN platform = 'theaudiodb' THEN genres END) AS audiodb_genres
+            FROM latest
+            GROUP BY artist_name
+        )
+        SELECT
+            artist_name,
+            CASE WHEN itunes_id IS NOT NULL THEN 1 ELSE 0 END AS has_itunes_id,
+            CASE WHEN wikidata_id IS NOT NULL THEN 1 ELSE 0 END AS has_wikidata_id,
+            CASE WHEN theaudiodb_id IS NOT NULL THEN 1 ELSE 0 END AS has_theaudiodb_id,
+            CONCAT_WS(' | ', audiodb_genres, wikidata_genres, itunes_genre)
+                AS enrichment_genres
+        FROM per_artist
+        ORDER BY
+            has_itunes_id + has_wikidata_id + has_theaudiodb_id DESC,
+            artist_name
+        LIMIT {n}
+    """)
+
+    result.show(n, truncate=False)
+    return result
+
+
+def artist_profile(spark, artist_name):
+    """
+    Query 6: Detail view for one artist across enabled sources.
+    """
+    logger.info("Query: Artist profile for '%s'", artist_name)
+
+    safe_name = artist_name.replace("'", "''")
     result = spark.sql(f"""
         SELECT
             artist_name,
@@ -257,51 +318,79 @@ def artist_popularity_trend(spark, artist_name):
             playcount,
             genres
         FROM artist_popularity
-        WHERE LOWER(artist_name) = LOWER('{artist_name}')
-        ORDER BY platform, snapshot_date
+        WHERE LOWER(artist_name) = LOWER('{safe_name}')
+        ORDER BY
+            CASE platform
+                WHEN 'lastfm' THEN 1
+                WHEN 'deezer' THEN 2
+                WHEN 'wikimedia' THEN 3
+                WHEN 'listenbrainz' THEN 4
+                WHEN 'musicbrainz' THEN 5
+                ELSE 6
+            END,
+            platform,
+            snapshot_date
     """)
 
     result.show(truncate=False)
     return result
 
 
-def run_all_queries(spark, df):
+def dataset_health_summary(spark):
     """
-    Execute all analytical queries and display results.
-
-    This serves as the query layer entry point, running the full
-    suite of analytics against the loaded dataset.
-
-    Args:
-        spark: Active SparkSession.
-        df: Normalized DataFrame (all historical snapshots).
+    Supporting summary for enabled-source data volume and coverage.
     """
-    register_table(spark, df)
+    logger.info("Query: Dataset health summary")
+
+    result = spark.sql("""
+        WITH latest AS (
+            SELECT *
+            FROM artist_popularity
+            WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM artist_popularity)
+        )
+        SELECT
+            COUNT(*) AS latest_snapshot_rows,
+            COUNT(DISTINCT artist_name) AS unique_artists,
+            COUNT(DISTINCT platform) AS enabled_platforms,
+            SORT_ARRAY(COLLECT_SET(platform)) AS platforms_present,
+            MAX(snapshot_date) AS latest_snapshot
+        FROM latest
+    """)
+
+    result.show(truncate=False)
+    return result
+
+
+def run_all_queries(spark, df, enabled_sources=None):
+    """
+    Execute the portfolio query suite against enabled source data.
+    """
+    register_table(spark, df, enabled_sources=enabled_sources)
 
     print("\n" + "=" * 70)
     print("ANALYTICAL QUERY RESULTS")
     print("=" * 70)
 
-    print("\n--- Query 1: Dataset Summary ---")
-    dataset_summary(spark)
+    print("\n--- Query 1: Artist Scorecard ---")
+    artist_scorecard(spark, n=50)
 
-    print("\n--- Query 2: Cross-Platform Comparison ---")
-    cross_platform_comparison(spark)
+    print("\n--- Query 2: Composite Reach Rank ---")
+    composite_reach_rank(spark, n=25)
 
-    print("\n--- Query 3: Top 10 Artists by Reach ---")
-    top_artists_by_reach(spark, n=10)
+    print("\n--- Query 3: Platform Gap Analysis ---")
+    platform_gap_analysis(spark, n=25)
 
-    print("\n--- Query 4: MusicBrainz Community Ratings ---")
-    musicbrainz_ratings(spark)
+    print("\n--- Query 4: Genre Reach Summary ---")
+    genre_reach_summary(spark, n=50)
 
-    print("\n--- Query 5: Genre Analysis ---")
-    genre_analysis(spark)
+    print("\n--- Query 5: Metadata Coverage ---")
+    metadata_coverage(spark, n=50)
 
-    print("\n--- Query 6: Platform Coverage ---")
-    platform_coverage(spark)
+    print("\n--- Query 6: Artist Profile (Radiohead) ---")
+    artist_profile(spark, "Radiohead")
 
-    print("\n--- Query 7: Artist Detail (Radiohead) ---")
-    artist_popularity_trend(spark, "Radiohead")
+    print("\n--- Enabled-Source Dataset Health ---")
+    dataset_health_summary(spark)
 
     print("\n" + "=" * 70)
     print("ALL QUERIES COMPLETE")

@@ -1,167 +1,184 @@
-# Distributed Analysis of Artist Popularity Trends Across Streaming Platforms
+# Artist Popularity Pipeline Across Music Platforms
 
-**CS 4265 — Big Data Analytics: Building Data Pipelines at Scale**
+**CS 4265 Big Data Analytics**  
 Elijah Giusto
 
----
+This project is a PySpark data pipeline that compares artist popularity and metadata across public music and web data sources. It ingests 150 configured artists, normalizes heterogeneous API responses into one schema, stores partitioned Parquet snapshots in local mode or HDFS mode, runs Spark SQL analysis, and validates data quality on every run.
 
-## Project Overview
+In 30 seconds: the pipeline answers, "How does an artist's reach differ across listener counts, fan counts, public page attention, open listening stats, community ratings, and catalog metadata?"
 
-Music artists distribute content across multiple streaming platforms, each exposing distinct popularity metrics, update frequencies, and data formats. This project implements a distributed data pipeline that ingests artist-level popularity data from **Spotify**, **Last.fm**, **Deezer**, and **MusicBrainz**, normalizes it into a unified schema, stores it in partitioned Parquet format, and enables cross-platform analytical queries using Apache Spark SQL.
+## Current Sources
 
-The system follows a batch-oriented processing model using MapReduce-style stages: parallel map operations ingest and normalize data from each platform, a shuffle phase groups records by artist and platform, and reduce operations compute aggregated statistics. Each pipeline run captures a timestamped snapshot, building a time-series dataset over repeated executions.
+| Source | Auth | Pipeline Role |
+| --- | --- | --- |
+| Last.fm | Free API key | Listener count, playcount, tags |
+| Deezer | No key | Fan count and artist catalog data |
+| MusicBrainz | No key | MBID, community rating, tags |
+| ListenBrainz | No key | Open listen-count stats by MusicBrainz artist ID |
+| Wikimedia Pageviews | No key | Rolling monthly Wikipedia pageview attention metric |
+| TheAudioDB | Free shared/API key | Artist genre/style metadata |
+| iTunes Search | No key | Apple catalog ID and primary genre |
+| Wikidata | No key | Canonical entity ID and genre claims |
 
-## Technology Stack
+Spotify remains in the codebase as an optional catalog-ID source, but it is disabled by default because current development-mode responses do not provide useful artist popularity, follower, or genre metrics.
 
-| Layer       | Technology                                |
-| ----------- | ----------------------------------------- |
-| Processing  | Apache Spark (PySpark), Spark SQL         |
-| Storage     | Parquet (columnar, partitioned)           |
-| Ingestion   | Python `requests`, `ThreadPoolExecutor`   |
-| Data Format | JSON (raw), Parquet (processed)           |
-| Config      | YAML, python-dotenv                       |
+## Architecture
 
-### Note on Implementation Changes
-
-The Milestone 1 proposal specified HDFS for distributed storage. During development, the implementation was rebuilt from the ground up for Milestone 3 to use PySpark as the primary processing engine (replacing the pandas/Dask approach from M2). Parquet storage with platform and date partitioning follows the same distributed storage principles as HDFS (block-level partitioning, parallel access, fault-tolerant layout). The storage paths are configurable and can be pointed at an HDFS cluster by changing the path prefix in `config/settings.yaml`.
-
-## Repository Structure
-
-```
-CS-4265-Project/
-├── README.md                           # This file
-├── .env.example                        # Template for API credentials
-├── .gitignore
-├── requirements.txt                    # Python dependencies
-├── config/
-│   └── settings.yaml                   # Pipeline and API configuration
-├── data/
-│   ├── raw/                            # Raw JSON API responses (timestamped)
-│   └── processed/                      # Parquet time-series (partitioned)
-├── hadoop/
-│   └── bin/                            # Windows Hadoop binaries (not committed)
-│       ├── winutils.exe
-│       └── hadoop.dll
-├── src/
-│   ├── main.py                         # Pipeline orchestrator
-│   ├── ingestion/
-│   │   ├── spotify_ingest.py           # Spotify API ingestion
-│   │   ├── lastfm_ingest.py            # Last.fm API ingestion
-│   │   ├── deezer_ingest.py            # Deezer API ingestion
-│   │   └── musicbrainz_ingest.py       # MusicBrainz API ingestion
-│   ├── processing/
-│   │   └── normalize.py                # Schema normalization (PySpark)
-│   ├── storage/
-│   │   └── parquet_store.py            # Parquet read/write operations
-│   └── analysis/
-│       └── queries.py                  # Spark SQL analytical queries
-└── docs/
-    └── data_dictionary.md              # Schema and field documentation
+```mermaid
+flowchart LR
+    A["config/settings.yaml\n150 tracked artists\nsources.enabled"] --> B["Ingestion modules\nAPI fetch + retry + rate limits"]
+    B --> C["Raw JSON snapshots\ndata/raw"]
+    C --> D["PySpark normalization\ncanonical artist names + unified schema"]
+    D --> E["Partitioned Parquet\nlocal data lake or HDFS"]
+    E --> F["Spark SQL analysis\ncross-platform metrics + metadata coverage"]
+    E --> G["Validation gate\ncoverage, duplicates, metrics, edge cases"]
 ```
 
-## Setup Instructions
+## Repository Layout
+
+```text
+.
+|-- config/
+|   |-- artists_150.yaml
+|   `-- settings.yaml
+|-- docker/
+|   `-- hadoop/
+|-- data/sample/artist_popularity_sample.json
+|-- docs/
+|   |-- architecture.md
+|   |-- data_dictionary.md
+|   |-- hdfs.md
+|   `-- validation.md
+|-- src/
+|   |-- analysis/queries.py
+|   |-- ingestion/
+|   |-- processing/normalize.py
+|   |-- storage/parquet_store.py
+|   `-- validation/validate.py
+|-- tests/
+|-- .env.example
+|-- LICENSE
+|-- README.md
+`-- requirements.txt
+```
+
+## Setup
 
 ### Prerequisites
-- Python 3.9+ (tested with Python 3.14)
-- Java 17 (required by PySpark 3.5+, download from https://adoptium.net/)
 
-### 1. Clone the Repository
+- Python 3.9+; tested locally with Python 3.14.3
+- Java 17 for PySpark
+- Docker Desktop for optional HDFS mode
+- Windows only: `hadoop/bin/winutils.exe` and `hadoop/bin/hadoop.dll`
 
-```bash
-git clone https://github.com/ElijahGiusto/CS-4265-Project.git
-cd CS-4265-Project
-```
+The pipeline now injects `hadoop/bin` into `PATH` automatically on Windows when the files exist, so there is no manual per-run PATH command.
 
-### 2. Install Dependencies
+### Clone
 
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/ElijahGiusto/Big-Data-Analytics-Project.git
+cd Big-Data-Analytics-Project
 ```
 
-### 3. Configure API Credentials
+### Install
 
-Copy the example environment file and fill in your credentials:
+```bash
+python -m pip install -r requirements.txt
+```
+
+### Configure Credentials
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` with your API keys:
+Fill in:
 
-```
-SPOTIFY_CLIENT_ID=your_spotify_client_id
-SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+```text
 LASTFM_API_KEY=your_lastfm_api_key
 ```
 
-- **Spotify**: Register an app at https://developer.spotify.com/dashboard
-- **Last.fm**: Create an API account at https://www.last.fm/api/account/create
-- **Deezer**: No credentials required (public API)
-- **MusicBrainz**: No credentials required (public API, uses User-Agent header)
+Last.fm is the only required private key for the default run. Spotify credentials are optional because Spotify is disabled by default in `config/settings.yaml`. Deezer, MusicBrainz, ListenBrainz, Wikimedia, iTunes, and Wikidata require no private credentials. TheAudioDB uses the documented free key in `config/settings.yaml`, with optional override through `THEAUDIODB_API_KEY`.
 
-### 4. Windows Setup (Hadoop Binaries)
-
-PySpark on Windows requires Hadoop binaries for local file operations. Create the directory and download:
-
-```powershell
-mkdir hadoop\bin -Force
-curl -o hadoop\bin\winutils.exe https://github.com/cdarlint/winutils/raw/master/hadoop-3.3.6/bin/winutils.exe
-curl -o hadoop\bin\hadoop.dll https://github.com/cdarlint/winutils/raw/master/hadoop-3.3.6/bin/hadoop.dll
-```
-
-Before each pipeline run, add `hadoop\bin` to your PATH:
-
-```powershell
-$env:PATH = "$PWD\hadoop\bin;$env:PATH"
-```
-
-This is not needed on Linux or macOS.
-
-### 5. Run the Pipeline
+## Run Locally
 
 ```bash
-# Full pipeline: ingest -> process -> store -> query
+# Full pipeline: ingest, normalize, store, query, validate
 python src/main.py
 
-# Query-only mode: skip ingestion, analyze existing data
+# Query existing Parquet without new ingestion
 python src/main.py --query-only
+
+# Run only the validation gate
+python src/main.py --validate-only
+
+# Run without validation, useful during API debugging
+python src/main.py --skip-validation
 ```
 
-## Pipeline Stages
+## Run With HDFS
 
-### Stage 1 — Data Ingestion (Map Phase)
-Artist data is fetched from Spotify, Last.fm, Deezer, and MusicBrainz APIs using parallel HTTP requests via `ThreadPoolExecutor`. Each platform's ingestion job runs independently with retry logic, rate limiting, and error handling. Raw API responses are saved as timestamped JSON files.
+The default mode writes processed Parquet to `data/processed` so the project is easy to clone and run. For a real Hadoop-backed run, start the bundled single-node HDFS service and use `--storage hdfs`:
 
-### Stage 2 — Normalization (Shuffle + Reduce Phase)
-Raw responses are transformed into PySpark DataFrames with a unified schema: `artist_name | artist_id | platform | snapshot_date | popularity_score | listeners | playcount | genres`. Platform-specific map functions extract relevant fields, then all records are unioned into a single DataFrame.
+```bash
+docker compose up -d --build
+python src/main.py --storage hdfs
+```
 
-### Stage 3 — Parquet Storage
-The normalized DataFrame is written to Parquet format, partitioned by `platform` and `snapshot_date`. This columnar layout enables efficient compression, parallel reads, and time-range queries. New pipeline runs append snapshots without overwriting historical data.
+Useful HDFS commands:
 
-### Stage 4 — Analytical Queries (Query Layer)
-Spark SQL queries are executed against the full historical dataset:
-1. **Dataset Summary** — Record counts, platforms, snapshot coverage
-2. **Cross-Platform Comparison** — Last.fm listeners, Deezer fans, and MusicBrainz ratings side by side
-3. **Top Artists by Reach** — Ranked lists using window functions across Last.fm and Deezer
-4. **MusicBrainz Community Ratings** — Artist ratings and genre tags from community votes
-5. **Genre Analysis** — Genre distribution from Last.fm and MusicBrainz
-6. **Platform Coverage** — Data completeness per artist across all platforms
-7. **Artist Detail** — Single artist view across all platforms and snapshots
+```bash
+# Query existing HDFS Parquet without new API calls
+python src/main.py --query-only --storage hdfs
 
-## Configuration
+# Validate existing HDFS Parquet
+python src/main.py --validate-only --storage hdfs
 
-All pipeline settings are in `config/settings.yaml`:
-- **API endpoints** for each platform
-- **Pipeline parameters**: batch size, retry count, timeout
-- **Storage paths**: raw and processed data directories
-- **Artist list**: artists to track (currently 40 artists)
+# Inspect the HDFS directory from the container
+docker compose exec hdfs hdfs dfs -ls -R /artist-popularity/processed
+
+# Stop the local Hadoop service
+docker compose down
+```
+
+NameNode UI: [http://localhost:9870](http://localhost:9870)
+
+See [docs/hdfs.md](docs/hdfs.md) for HDFS inspection, reset, and troubleshooting commands.
+
+## Validation Evidence
+
+Latest successful run: **April 26, 2026**
+
+- Runtime: **581.7 seconds**
+- Latest snapshot rows: **1,162**
+- Historical rows loaded: **1,320**
+- Sources present in latest snapshot: **8 enabled sources**
+- Canonical artists: **150/150**
+- Duplicate artist-platform-date groups: **0**
+- Required metric platforms populated: Last.fm, Deezer, MusicBrainz, Wikimedia
+- Validation result: **passed**
+
+See [docs/validation.md](docs/validation.md) for the full validation report and edge cases.
+
+## Key Technical Decisions
+
+- **PySpark over pandas-only processing:** keeps the project aligned with distributed data pipeline concepts and supports scalable SQL queries over partitioned snapshots.
+- **Local or HDFS Parquet:** stores data by `platform` and `snapshot_date`, enabling efficient platform/time filtering and incremental snapshots. Local mode is the clone-and-run default; HDFS mode uses Dockerized Apache Hadoop.
+- **Canonical artist matching:** normalizes platform spelling variants such as `Björk`, `TOOL`, `Tyler, The Creator`, and `King Gizzard & The Lizard Wizard` back to the configured artist list.
+- **Snapshot partition cleanup:** rerunning the same day replaces the current snapshot before writing, so disabled sources like Spotify cannot remain in the latest partition.
+- **Spotify treated honestly:** Spotify is disabled by default because the available development-mode API response omits artist popularity/follower/genre fields.
+- **Rate-limit-aware enrichment:** iTunes runs sequentially with caching because Apple documents the Search API at about 20 calls per minute.
 
 ## Known Limitations
 
-- **Spotify**: Client Credentials OAuth tokens restrict the search endpoint to returning artist name and ID only — popularity scores, follower counts, and genres are not included. Spotify contributes artist identification for cross-platform matching while Last.fm, Deezer, and MusicBrainz provide the popularity metrics.
-- **Artist Name Inconsistencies**: Platforms format artist names differently (e.g., "Bjork" vs "Björk", "Tool" vs "TOOL"), which can cause deduplication gaps in cross-platform queries.
-- **MusicBrainz Rate Limit**: MusicBrainz enforces a strict 1 request/second limit, so ingestion for 40 artists takes approximately 90 seconds.
+- MusicBrainz and ListenBrainz depend on MBIDs, so artists with missing MusicBrainz matches have partial coverage.
+- Metrics are platform-native and not directly equivalent: Last.fm listeners, Deezer fans, Wikimedia pageviews, ListenBrainz listens, and MusicBrainz ratings measure different forms of attention.
+- TheAudioDB and iTunes are enrichment sources; they improve metadata coverage but are not popularity sources.
+- Public APIs can change or rate-limit; ingestion modules include retries, throttling, and partial-failure handling.
 
-## Status
+## Tests
 
-This repository contains the complete Milestone 3 implementation. The pipeline runs end-to-end from API ingestion through Parquet storage to Spark SQL queries. The architecture was rebuilt from scratch for M3 to align with the original Milestone 1 proposal using PySpark.
+```bash
+python -m unittest discover -s tests
+python src/main.py --validate-only
+```

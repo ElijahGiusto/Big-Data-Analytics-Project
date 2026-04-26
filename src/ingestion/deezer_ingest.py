@@ -164,7 +164,9 @@ def fetch_artist(artist_name, config):
         results = data.get("data", [])
         if results:
             logger.debug("Fetched Deezer data for '%s'", artist_name)
-            return results[0]
+            artist = results[0]
+            artist["source_artist_name"] = artist_name
+            return artist
 
         logger.warning("No Deezer results for '%s'", artist_name)
         return None

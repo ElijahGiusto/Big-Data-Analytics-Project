@@ -1,0 +1,24 @@
+services:
+  hdfs:
+    build:
+      context: ./docker/hadoop
+    container_name: artist-popularity-hdfs
+    hostname: hadoop
+    ports:
+      - "9000:9000"
+      - "9870:9870"
+      - "9864:9864"
+      - "9866:9866"
+    volumes:
+      - hdfs-name:/hadoop/dfs/name
+      - hdfs-data:/hadoop/dfs/data
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfs -fs hdfs://localhost:9000 -test -d /"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+
+volumes:
+  hdfs-name:
+  hdfs-data:

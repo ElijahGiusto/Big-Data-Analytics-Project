@@ -184,11 +184,14 @@ def fetch_artist(artist_name, config):
                     },
                     retries=retries, delay=delay, timeout=timeout,
                 )
+                detail["source_artist_name"] = artist_name
                 return detail
             except Exception:
                 # Fall back to search result if detail fetch fails
+                artist["source_artist_name"] = artist_name
                 return artist
 
+        artist["source_artist_name"] = artist_name
         return artist
 
     except Exception as e:
@@ -203,8 +206,8 @@ def fetch_all_artists(config):
     Retrieve MusicBrainz data for all artists listed in configuration.
 
     MusicBrainz has a strict 1 req/sec limit, so this runs sequentially
-    with rate limiting. Each artist requires 2 requests (search + detail),
-    so 40 artists takes ~90 seconds.
+    with rate limiting. Each artist can require 2 requests (search + detail),
+    so larger artist lists intentionally take several minutes.
 
     Returns:
         list[dict]: List of MusicBrainz artist objects.

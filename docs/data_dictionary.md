@@ -1,93 +1,66 @@
 # Data Dictionary
 
-## Unified Schema: `artist_popularity`
+## Unified Table: `artist_popularity`
 
-All data from Spotify, Last.fm, Deezer, and MusicBrainz is normalized into
-this schema before being written to Parquet. The schema is enforced by
-PySpark's `StructType` definition in `src/processing/normalize.py`.
+All raw API responses are normalized into this PySpark schema before being written to Parquet.
 
-| Field              | Type    | Nullable | Description                                                        |
-| ------------------ | ------- | -------- | ------------------------------------------------------------------ |
-| `artist_name`      | string  | No       | Display name of the artist (e.g., "Radiohead")                     |
-| `artist_id`        | string  | No       | Platform-specific unique identifier (Spotify ID, Last.fm MBID, Deezer ID, or MusicBrainz UUID) |
-| `platform`         | string  | No       | Source platform: `"spotify"`, `"lastfm"`, `"deezer"`, or `"musicbrainz"` |
-| `snapshot_date`    | string  | No       | Date of data collection in `YYYY-MM-DD` format                     |
-| `popularity_score` | integer | Yes      | Platform-native popularity metric (see Platform Metrics below)     |
-| `listeners`        | long    | Yes      | Listener or fan count from the platform                            |
-| `playcount`        | long    | Yes      | Total play count (available from Last.fm only)                     |
-| `genres`           | string  | Yes      | Comma-separated genre tags (available from Last.fm and MusicBrainz) |
+| Field | Type | Nullable | Description |
+| --- | --- | --- | --- |
+| `artist_name` | string | No | Canonical artist name from `config/settings.yaml` |
+| `artist_id` | string | No | Platform-specific identifier, such as MusicBrainz UUID, Wikidata QID, Wikipedia page title, Deezer artist ID, or iTunes artist ID |
+| `platform` | string | No | Source platform/API |
+| `snapshot_date` | string | No | Pipeline run date in `YYYY-MM-DD` format |
+| `popularity_score` | integer | Yes | Source-native metric when available |
+| `listeners` | long | Yes | Listener, fan, view, vote, or source-equivalent reach count when available |
+| `playcount` | long | Yes | Total plays/listens/pageviews over a source-specific period when available |
+| `genres` | string | Yes | Comma-separated genre/tag/style metadata |
 
----
+## Source Mapping
 
-## Platform Metrics
+| Platform | `popularity_score` | `listeners` | `playcount` | `genres` |
+| --- | --- | --- | --- | --- |
+| `lastfm` | Listener count | Listener count | Total Last.fm playcount | Top 5 Last.fm tags |
+| `deezer` | Fan count | Fan count | Null | Null |
+| `musicbrainz` | Community rating scaled 0-100 | Rating vote count | Null | Top 5 community tags |
+| `listenbrainz` | Total ListenBrainz listens | Count of returned top listeners | Total ListenBrainz listens | Null |
+| `wikimedia` | Latest complete month pageviews | Latest complete month pageviews | Sum of configured rolling pageview window | Null |
+| `theaudiodb` | Null | Null | Null | Genre/style/mood metadata |
+| `itunes` | Null | Null | Null | Apple primary genre |
+| `wikidata` | Null | Null | Null | Wikidata genre claims |
 
-Each platform provides different raw metrics. The normalization step maps
-them into the unified schema as follows:
-
-### Spotify
-- **popularity_score**: Not available (null) — Client Credentials auth restricts the search endpoint
-- **listeners**: Not available (null)
-- **playcount**: Not available (null)
-- **genres**: Not available (null)
-- **Note**: Spotify contributes artist name and Spotify ID for cross-platform identification. Popularity metrics require user-level OAuth scopes not available under Client Credentials.
-
-### Last.fm
-- **popularity_score**: Total listener count (raw value, unique users who played the artist)
-- **listeners**: Same as popularity_score (total unique listeners)
-- **playcount**: Total cumulative play count across all tracks
-- **genres**: Top 5 user-applied tags from Last.fm
-
-### Deezer
-- **popularity_score**: Number of fans (nb_fan, users who favorited the artist)
-- **listeners**: Same as popularity_score (fan count)
-- **playcount**: Not available (null)
-- **genres**: Not available (null)
-
-### MusicBrainz
-- **popularity_score**: Community rating scaled to 0–100 (original 0–5 scale × 20)
-- **listeners**: Number of rating votes (votes-count)
-- **playcount**: Not available (null)
-- **genres**: Top 5 community-applied tags sorted by vote count
-
----
+Spotify normalization remains in the codebase for optional catalog matching, but `spotify` is disabled in the default source configuration and is not required for validation or analysis.
 
 ## Parquet Partitioning
 
-Processed data is stored in Parquet format partitioned by:
+Processed data is stored in Parquet format partitioned by source and run date. Local mode writes to `data/processed`; HDFS mode writes to `hdfs://localhost:9000/artist-popularity/processed`.
 
-```
+```text
 data/processed/
-    platform=spotify/
-        snapshot_date=2026-04-04/
-            part-00000-*.parquet
     platform=lastfm/
-        snapshot_date=2026-04-04/
-            ...
-    platform=deezer/
-        snapshot_date=2026-04-04/
-            ...
-    platform=musicbrainz/
-        snapshot_date=2026-04-04/
-            ...
+        snapshot_date=2026-04-26/
+            part-*.parquet
+    platform=wikimedia/
+        snapshot_date=2026-04-26/
+            part-*.parquet
 ```
 
-This layout enables:
-- **Platform-specific queries**: Read only one platform's partition
-- **Time-range scans**: Access specific date ranges efficiently
-- **Incremental appends**: New pipeline runs add partitions without overwriting history
+The HDFS layout uses the same partition names:
 
----
+```text
+hdfs://localhost:9000/artist-popularity/processed/
+    platform=lastfm/
+        snapshot_date=2026-04-26/
+            part-*.parquet
+```
 
-## Raw Data Files
+Same-day reruns remove existing partitions for the current snapshot date before writing, then use dynamic partition overwrite. This keeps repeat runs from duplicating rows and prevents disabled sources from lingering in the latest snapshot.
 
-Raw API responses are stored as timestamped JSON files:
+## Raw Files
 
-| File Pattern                          | Contents                             |
-| ------------------------------------- | ------------------------------------ |
-| `data/raw/spotify_YYYYMMDD.json`      | Raw Spotify search API responses     |
-| `data/raw/lastfm_YYYYMMDD.json`       | Raw Last.fm artist.getinfo results   |
-| `data/raw/deezer_YYYYMMDD.json`       | Raw Deezer artist search results     |
-| `data/raw/musicbrainz_YYYYMMDD.json`  | Raw MusicBrainz artist detail results|
+Raw API responses are written as JSON files in `data/raw` using this pattern:
 
-Raw files preserve the original API responses for reproducibility and
-reprocessing if the normalization logic changes.
+```text
+{platform}_YYYYMMDD.json
+```
+
+Raw JSON files are ignored by Git because they are reproducible outputs and may contain API response metadata. A small sample dataset is committed under `data/sample`.

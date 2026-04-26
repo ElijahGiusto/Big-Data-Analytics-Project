@@ -8,6 +8,21 @@ pipeline:
   retry_delay: 2          # Seconds between retries
   request_timeout: 10     # Seconds before request times out
 
+# Sources are explicitly enabled so restricted or low-value APIs do not
+# leak into the default portfolio run. Spotify remains available as an
+# optional catalog source, but it is not part of the default analytics.
+sources:
+  enabled:
+    spotify: false
+    lastfm: true
+    deezer: true
+    musicbrainz: true
+    listenbrainz: true
+    wikimedia: true
+    theaudiodb: true
+    itunes: true
+    wikidata: true
+
 # =============================================================================
 # Platform API Configuration
 # =============================================================================
@@ -28,13 +43,54 @@ deezer:
 musicbrainz:
   base_url: "https://musicbrainz.org/ws/2"
 
+listenbrainz:
+  base_url: "https://api.listenbrainz.org"
+  range: "all_time"
+  top_listener_count: 25
+
+wikimedia:
+  search_url: "https://en.wikipedia.org/w/api.php"
+  pageviews_url: "https://wikimedia.org/api/rest_v1/metrics/pageviews"
+  project: "en.wikipedia"
+  access: "all-access"
+  agent: "user"
+  months_back: 3
+  page_title_overrides:
+    Ado: "Ado (singer)"
+    Bjork: "Björk"
+    Blur: "Blur (band)"
+    Ghost: "Ghost (Swedish band)"
+    Gojira: "Gojira (band)"
+    Laufey: "Laufey (singer)"
+    MF DOOM: "MF Doom"
+    PornoGraffitti: "Porno Graffitti"
+    Sigur Ros: "Sigur Rós"
+    Tool: "Tool (band)"
+    Tyler the Creator: "Tyler, the Creator"
+
+theaudiodb:
+  base_url: "https://www.theaudiodb.com/api/v1/json"
+  api_key: "123"
+
+itunes:
+  search_url: "https://itunes.apple.com/search"
+  country: "US"
+  min_interval_seconds: 3.1
+  cache_path: "data/cache/itunes_artist_cache.json"
+
+wikidata:
+  api_url: "https://www.wikidata.org/w/api.php"
+
 # =============================================================================
 # Storage Configuration
 # =============================================================================
 
 storage:
+  mode: "local"
   raw_path: "data/raw"
   processed_path: "data/processed"
+  hdfs_uri: "hdfs://localhost:9000"
+  hdfs_processed_path: "/artist-popularity/processed"
 
 # =============================================================================
 # Artist List
@@ -81,3 +137,113 @@ artists:
   - "Aphex Twin"
   - "MF DOOM"
   - "Run the Jewels"
+  - "Justin Bieber"
+  - "Kanye West"
+  - "PinkPantheress"
+  - "The Weeknd"
+  - "Olivia Rodrigo"
+  - "Rihanna"
+  - "Drake"
+  - "Lady Gaga"
+  - "Taylor Swift"
+  - "Ariana Grande"
+  - "Lana Del Rey"
+  - "Charli xcx"
+  - "Billie Eilish"
+  - "Paramore"
+  - "Bruno Mars"
+  - "Doja Cat"
+  - "Harry Styles"
+  - "Michael Jackson"
+  - "Fleetwood Mac"
+  - "Don Toliver"
+  - "Katy Perry"
+  - "Bad Bunny"
+  - "A$AP Rocky"
+  - "The Neighbourhood"
+  - "Travis Scott"
+  - "Linkin Park"
+  - "Chappell Roan"
+  - "Childish Gambino"
+  - "SZA"
+  - "Dominic Fike"
+  - "The Marías"
+  - "The Strokes"
+  - "sombr"
+  - "Coldplay"
+  - "BTS"
+  - "Malcolm Todd"
+  - "Playboi Carti"
+  - "Beyoncé"
+  - "Future"
+  - "Clairo"
+  - "Mac Miller"
+  - "TV Girl"
+  - "beabadoobee"
+  - "The Beatles"
+  - "Nirvana"
+  - "Britney Spears"
+  - "Lorde"
+  - "Maroon 5"
+  - "Lil Uzi Vert"
+  - "Calvin Harris"
+  - "Madonna"
+  - "Twenty One Pilots"
+  - "The Cure"
+  - "Red Hot Chili Peppers"
+  - "Zara Larsson"
+  - "Weezer"
+  - "KATSEYE"
+  - "Kali Uchis"
+  - "Steve Lacy"
+  - "Addison Rae"
+  - "My Chemical Romance"
+  - "Joji"
+  - "Daniel Caesar"
+  - "Tate McRae"
+  - "Green Day"
+  - "Queen"
+  - "Post Malone"
+  - "Olivia Dean"
+  - "Panic! at the Disco"
+  - "Eminem"
+  - "System of a Down"
+  - "J. Cole"
+  - "Sade"
+  - "RAYE"
+  - "Black Eyed Peas"
+  - "Justin Timberlake"
+  - "David Guetta"
+  - "Metro Boomin"
+  - "Pink Floyd"
+  - "The Killers"
+  - "Hozier"
+  - "Cigarettes After Sex"
+  - "Jeff Buckley"
+  - "Kesha"
+  - "JAY-Z"
+  - "Brent Faiyaz"
+  - "Pierce the Veil"
+  - "Pitbull"
+  - "LE SSERAFIM"
+  - "ABBA"
+  - "Fall Out Boy"
+  - "Muse"
+  - "Miley Cyrus"
+  - "The Smashing Pumpkins"
+  - "Djo"
+  - "The Kid LAROI"
+  - "David Bowie"
+  - "The Cranberries"
+  - "TWICE"
+  - "Yeat"
+  - "Baby Keem"
+  - "Demi Lovato"
+  - "Marina"
+  - "Dua Lipa"
+  - "One Direction"
+  - "Conan Gray"
+  - "Foo Fighters"
+  - "Cocteau Twins"
+  - "Lil Peep"
+  - "NewJeans"

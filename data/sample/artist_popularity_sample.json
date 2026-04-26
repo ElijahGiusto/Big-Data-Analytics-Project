@@ -1,0 +1,72 @@
+[
+  {
+    "artist_name": "Radiohead",
+    "artist_id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+    "platform": "lastfm",
+    "snapshot_date": "2026-04-26",
+    "popularity_score": 8233471,
+    "listeners": 8233471,
+    "playcount": 1373615108,
+    "genres": "rock, alternative, alternative rock, indie, electronic"
+  },
+  {
+    "artist_name": "Radiohead",
+    "artist_id": "399",
+    "platform": "deezer",
+    "snapshot_date": "2026-04-26",
+    "popularity_score": 4020206,
+    "listeners": 4020206,
+    "playcount": null,
+    "genres": null
+  },
+  {
+    "artist_name": "Radiohead",
+    "artist_id": "Radiohead",
+    "platform": "wikimedia",
+    "snapshot_date": "2026-04-26",
+    "popularity_score": 3967,
+    "listeners": 3967,
+    "playcount": 257469,
+    "genres": null
+  },
+  {
+    "artist_name": "Radiohead",
+    "artist_id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+    "platform": "listenbrainz",
+    "snapshot_date": "2026-04-26",
+    "popularity_score": 5956119,
+    "listeners": 9,
+    "playcount": 5956119,
+    "genres": null
+  },
+  {
+    "artist_name": "Radiohead",
+    "artist_id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+    "platform": "musicbrainz",
+    "snapshot_date": "2026-04-26",
+    "popularity_score": 90,
+    "listeners": 76,
+    "playcount": null,
+    "genres": "alternative rock, art rock, rock, british, experimental rock"
+  },
+  {
+    "artist_name": "Radiohead",
+    "artist_id": "657515",
+    "platform": "itunes",
+    "snapshot_date": "2026-04-26",
+    "popularity_score": null,
+    "listeners": null,
+    "playcount": null,
+    "genres": "Alternative"
+  },
+  {
+    "artist_name": "Radiohead",
+    "artist_id": "Q44190",
+    "platform": "wikidata",
+    "snapshot_date": "2026-04-26",
+    "popularity_score": null,
+    "listeners": null,
+    "playcount": null,
+    "genres": "alternative rock, Britpop, experimental rock, neo-prog, electronic rock"
+  }
+]

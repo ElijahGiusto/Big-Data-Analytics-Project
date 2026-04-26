@@ -1,9 +1,13 @@
 """
 Spotify API Ingestion Module
 
-Fetches artist metadata and popularity metrics from the Spotify Web API.
+Fetches artist catalog metadata from the Spotify Web API.
 Uses Client Credentials OAuth for authentication and ThreadPoolExecutor
 for parallel API requests following the MapReduce ingestion pattern.
+
+Spotify's 2026 development-mode responses may omit artist popularity,
+followers, and genres. This source is therefore treated as a catalog ID
+and URL source rather than a required popularity metric source.
 
 Rate Limiting Strategy:
     - Thread-safe rate limiter enforces minimum delay between requests
@@ -202,10 +206,12 @@ def get_access_token(config):
 
 def fetch_artist(artist_name, token, config):
     """
-    Fetch metadata for a single artist from the Spotify search API.
+    Fetch metadata for a single artist from the Spotify API.
 
-    Uses the /search endpoint with type=artist to locate the artist
-    and return the first matching result directly.
+    Uses the /search endpoint with type=artist to locate the artist,
+    then follows the artist ID to /artists/{id}. Under current Spotify
+    development-mode restrictions, the detail endpoint may still omit
+    popularity, followers, and genres.
 
     Args:
         artist_name: Name of the artist to search for.
@@ -233,7 +239,26 @@ def fetch_artist(artist_name, token, config):
         items = search_resp.json().get("artists", {}).get("items", [])
 
         if items:
-            return items[0]
+            artist = items[0]
+            artist["source_artist_name"] = artist_name
+            artist_id = artist.get("id")
+
+            if not artist_id:
+                return artist
+
+            detail_url = (
+                base_url
+                + config["spotify"]["artist_endpoint"].rstrip("/")
+                + f"/{artist_id}"
+            )
+            detail_resp = _spotify_request(
+                "get", detail_url,
+                retries=retries, delay=delay, timeout=timeout,
+                headers=headers,
+            )
+            detail = detail_resp.json()
+            detail["source_artist_name"] = artist_name
+            return detail
 
         logger.warning("No Spotify results for '%s'", artist_name)
         return None

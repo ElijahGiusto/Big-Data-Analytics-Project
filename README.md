@@ -57,7 +57,6 @@ flowchart LR
 |   `-- validation/validate.py
 |-- tests/
 |-- .env.example
-|-- LICENSE
 |-- README.md
 `-- requirements.txt
 ```
